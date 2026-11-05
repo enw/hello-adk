@@ -1,4 +1,4 @@
-# ADK capabilities: from hello world to a useful agent
+1. ADK capabilities: from hello world to a useful agent
 
 Status: ready-for-agent
 
