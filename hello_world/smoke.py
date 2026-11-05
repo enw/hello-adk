@@ -54,9 +54,50 @@ async def check_quote():
         await runner.close()
 
 
+async def check_session():
+    runner = InMemoryRunner(agent=root_agent, app_name="hello_world")
+    checks = [
+        ("Use concise responses for this conversation. Save that preference.", "session_preferences", {"response_style": "concise"}),
+        ("Inspect my current response style using the preferences tool.", "session_preferences", {"response_style": "concise"}),
+        ("Quote 3 items at $19.99 with 8.25% tax. Show subtotal, tax, total and currency.", "calculate_quote", {"subtotal": "59.97", "tax": "4.95", "total": "64.92", "currency": "USD"}),
+        ("Clear my response style preference using the tool.", "session_preferences", {"response_style": "standard"}),
+        ("Inspect my current response style using the preferences tool.", "session_preferences", {"response_style": "standard"}),
+    ]
+    try:
+        async with asyncio.timeout(90):
+            session = await runner.session_service.create_session(app_name="hello_world", user_id="smoke_test")
+            for prompt, tool, expected in checks:
+                called = False
+                results = []
+                final_text = ""
+                async for event in runner.run_async(
+                    user_id="smoke_test", session_id=session.id,
+                    new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+                    run_config=RunConfig(max_llm_calls=4),
+                ):
+                    if event.error_code:
+                        raise RuntimeError(f"{event.error_code}: {event.error_message}")
+                    for part in event.content.parts if event.content else []:
+                        if part.function_call and part.function_call.name == tool:
+                            called = True
+                        if part.function_response and part.function_response.name == tool:
+                            results.append(part.function_response.response)
+                    if event.is_final_response() and event.content:
+                        final_text = "".join(part.text or "" for part in event.content.parts)
+                if not called or results != [expected] or not final_text.strip():
+                    raise RuntimeError(f"Incomplete session verification for: {prompt}")
+                if tool == "calculate_quote" and not all(amount in final_text for amount in ("59.97", "4.95", "64.92")):
+                    raise RuntimeError("Concise quote omitted required amounts.")
+                print(f"PASS: {prompt}\n{final_text}")
+            print(f"PASS: {root_agent.model.model}; multi-turn session preference round trip verified.")
+    finally:
+        await runner.close()
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Live quote smoke check; may incur API charges.")
+    parser = argparse.ArgumentParser(description="Live agent smoke check; may incur API charges.")
     parser.add_argument("--live", action="store_true", help="Opt in to paid provider requests")
+    parser.add_argument("--scenario", choices=("quote", "session"), default="quote")
     args = parser.parse_args()
     if not args.live:
         parser.error("Pass --live to opt in; this check may incur API charges.")
@@ -65,7 +106,7 @@ def main():
     if not key or key == "your-google-ai-studio-api-key":
         parser.error("Set GOOGLE_API_KEY in the environment or hello_world/.env before live verification.")
     try:
-        asyncio.run(check_quote())
+        asyncio.run(check_session() if args.scenario == "session" else check_quote())
     except Exception as error:
         print(f"FAIL: {type(error).__name__}: {error}", file=sys.stderr)
         return 1

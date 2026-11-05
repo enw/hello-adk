@@ -48,6 +48,23 @@ The agent uses `calculate_quote` for quote arithmetic. Prices and tax percentage
 
 Rounding: multiply the decimal unit price by quantity, round subtotal to two decimals using `ROUND_HALF_UP`, calculate tax on that rounded subtotal and round tax the same way, then add them. Results are two-decimal strings. Values exceeding supported decimal precision return an actionable error rather than a partial quote.
 
+## Session response style
+
+The agent can remember one preference **within the current conversation**: `concise` or `standard` (the default). No preference is shared with a new conversation or another user.
+
+Try these in one web-UI conversation:
+
+1. “Use concise responses for this conversation.”
+2. “What's my current response style? Check the preference tool.” → `concise`.
+3. Ask the quote example above → still includes all three amounts, with a short explanation.
+4. “Use standard responses instead.” → `standard`.
+5. “Reset my response style preference.” → `standard`.
+6. Start a **new session** and inspect its style → `standard`, regardless of another session's setting.
+
+Only those two styles are stored. Invalid tool actions/styles return errors without changing the preference. Concise is a best-effort instruction to use at most two sentences when practical, not a hard output truncation.
+
+For persistence testing, set concise, note the conversation/session, stop and restart `uv run adk web`, then **resume that same conversation** and inspect the style. It should still be concise. Default local ADK session storage under `hello_world/.adk/` preserves it; in-memory sessions do not survive restart. Resetting clears the effective preference back to standard, not the conversation history. This is not long-term cross-chat memory. The development UI remains local-only and unauthenticated; user-ID isolation in tests is not hosted authentication.
+
 ## Verify
 
 After `uv sync`, run the offline suite (standard-library `unittest`; no added test dependencies):
@@ -65,3 +82,13 @@ uv run python -m hello_world.smoke --live
 ```
 
 Without `--live`, the command refuses to run. Missing credentials, provider errors, a wrong result, or no final quote are failures (nonzero exit). It checks the configured agent's real calculator invocation, exact structured result, and final answer containing all three amounts. It uses an isolated in-memory session, a 45-second run deadline, and at most four model calls; it does not require the web server. Live checks are never part of the offline suite. Server startup or HTTP 200 alone is not verification.
+
+For the live multi-turn session scenario:
+
+```sh
+uv run python -m hello_world.smoke --live --scenario session
+```
+
+This checks set → inspect → quote in concise mode → clear → inspect in one isolated in-memory session. Each step must produce its expected real tool result and a final reply. It has a 90-second total run deadline and at most four model calls per turn (five turns, at most twenty calls). API charges may apply. Restart persistence is tested offline with real temporary SQLite storage and a fresh runner/service; the live scenario does not claim to test persistence.
+
+The offline suite also checks defaults, preference changes, invalid-input nonmutation, per-request instruction updates, user/session isolation, and SQLite reopen/resume behavior. The existing quote smoke command remains unchanged.

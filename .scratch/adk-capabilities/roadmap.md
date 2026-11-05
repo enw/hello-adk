@@ -10,14 +10,14 @@ After a slice is verified, record evidence and lessons, update its status, then 
 
 ## Current frontier
 
-[01 — Calculate validated USD quotes through chat](issues/01-calculate-usd-quotes.md) is completed and verified. See [results and lessons](results-01.md). Stopped here: no next-slice tickets or implementation authorized.
+[02 — Manage response style within one conversation](issues/02-session-response-style.md) is completed and verified. See [results and lessons](results-02.md). Slices 01 and 02 are complete; user authorized committing slice 02. No later slice detailed or implemented.
 
 ## Capability map
 
 | Capability | User-visible outcome | Gates / ordering |
 | --- | --- | --- |
 | 1. Python tool | Accurate, validated USD quotes through chat | Completed ticket 01; offline tests and live runner/web-API checks passed |
-| 3. Conversation state | Inspect, change, and clear preferences within an isolated session | Recommended next after the first slice is verified |
+| 3. Conversation state | Inspect, change, and clear preferences within an isolated session | Completed ticket 02 for response style; offline isolation/restart tests and live multi-turn check passed |
 | 4. Persistent memory | Explicitly save, recall, and delete preferences across sessions | Conversation state and a trusted local user identity |
 | 2. Search grounding | Current-information answers with inspectable sources | Verify model/tool compatibility; reuse the test foundation |
 | 5. Document retrieval | Cited answers from an approved local collection | Choose collection and limits; reuse the test foundation |
@@ -45,4 +45,6 @@ Resolve only when relevant: search/model compatibility, concrete MCP service, do
 
 - **01 — USD quote tool:** completed. Six offline tests pass; live configured-agent and existing web-API checks observed real tool execution and the correct final quote. [Evidence and lessons](results-01.md).
 - Reuse the runner boundary and standard-library test setup. Keep live tool-selection checks separate from controlled-model offline tests. No new test dependency was necessary.
-- No next slice detailed or implemented.
+- **02 — Session response style:** completed. Twelve total offline tests pass, including SQLite reopen/resume and user/session isolation; live multi-turn and quote smoke checks passed. [Evidence and lessons](results-02.md).
+- Keep session state separate from long-term memory; reset changes effective state, not transcript history. No custom persistence or new dependency was needed.
+- No later slice detailed or implemented.

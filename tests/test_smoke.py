@@ -16,3 +16,12 @@ class SmokeCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("--live", result.stderr)
         self.assertIn("may incur API charges", result.stderr)
+
+    def test_session_scenario_requires_opt_in_too(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "hello_world.smoke", "--scenario", "session"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("may incur API charges", result.stderr)
+        self.assertNotIn("unrecognized arguments", result.stderr)
