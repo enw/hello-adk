@@ -6,3 +6,4 @@ __pycache__/
 !.env.example
 .adk/
 .DS_Store
+.vercel
