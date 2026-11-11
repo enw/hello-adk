@@ -32,6 +32,19 @@ uv run adk run hello_world
 
 Edit `hello_world/agent.py` to change the agent's instructions or model (currently `gemini-3.5-flash-lite`). Each of a request's at most two attempts has a 15-second timeout.
 
+## Personal chat UI
+
+`main.py` serves the same agent as a token-gated web app — FastAPI over Server-Sent Events, sessions in Postgres (Neon), one static-file client with no build step. Every `/api/*` request needs the `APP_TOKEN`; production runs on Vercel where a push to `main` deploys and each PR gets a live preview. Slice roadmap: `.scratch/chat-ui/`.
+
+Keyboard: `Enter` sends · `Shift+Enter` newline · `Esc` stops the stream · `↑` recalls the last message · `⌘K` new session · `⌘B` rail · `/` opens the command palette (`new`, `stop`, `delete`, `title <text>`).
+
+Run it locally (needs `DATABASE_URL` and `APP_TOKEN` in `hello_world/.env`):
+
+```sh
+uv run uvicorn main:app
+```
+
+
 ## Quote calculator
 
 Try in the existing web UI or terminal:

@@ -106,6 +106,51 @@ class ServerTests(unittest.TestCase):
         mine = next(s for s in listed if s["id"] == session)
         self.assertEqual(mine["title"], "")
 
+    def test_commands_endpoint_lists_palette(self):
+        client = self.client([])
+        self.assertEqual(client.get("/api/commands").status_code, 401)
+        commands = client.get("/api/commands", headers=AUTH).json()["commands"]
+        self.assertEqual([c["name"] for c in commands], ["new", "stop", "delete", "title"])
+        title = next(c for c in commands if c["name"] == "title")
+        self.assertTrue(title["takes_arg"])
+        self.assertFalse(next(c for c in commands if c["name"] == "new")["takes_arg"])
+
+    def test_rename_overrides_derived_title(self):
+        client = self.client([reply(types.Part(text="Answer."))])
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        client.post("/api/chat", headers=AUTH, json={"session_id": session, "text": "hello there"})
+        renamed = client.patch(f"/api/sessions/{session}", headers=AUTH,
+                               json={"title": "  my   name  "})
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.json()["title"], "my name")
+        listed = client.get("/api/sessions", headers=AUTH).json()["sessions"]
+        mine = next(s for s in listed if s["id"] == session)
+        self.assertEqual(mine["title"], "my name")
+        # the rename event carries no parts, so the history is unchanged
+        items = client.get(f"/api/sessions/{session}/messages", headers=AUTH).json()["items"]
+        self.assertEqual([i["kind"] for i in items], ["text", "text"])
+
+    def test_rename_rejects_unknown_session_and_empty_title(self):
+        client = self.client([])
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        unknown = client.patch("/api/sessions/missing", headers=AUTH, json={"title": "x"})
+        self.assertEqual(unknown.status_code, 404)
+        empty = client.patch(f"/api/sessions/{session}", headers=AUTH, json={"title": "   "})
+        self.assertEqual(empty.status_code, 422)
+
+    def test_chat_still_streams_after_rename(self):
+        # The rename leaves a content-less event in the history; the runner
+        # must tolerate it on the next turn.
+        client = self.client([reply(types.Part(text="Still fine."))])
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        client.patch(f"/api/sessions/{session}", headers=AUTH, json={"title": "renamed"})
+        response = client.post("/api/chat", headers=AUTH, json={"session_id": session, "text": "hi"})
+        self.assertEqual(response.status_code, 200)
+        events = sse_events(response)
+        self.assertEqual(events[-1]["type"], "done")
+        text = "".join(e.get("text", "") for e in events if e["type"] in ("delta", "replace"))
+        self.assertIn("Still fine.", text)
+
     def test_chat_rejects_unknown_session_and_empty_text(self):
         client = self.client([])
         unknown = client.post("/api/chat", headers=AUTH, json={"session_id": "missing", "text": "hi"})

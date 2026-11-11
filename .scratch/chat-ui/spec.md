@@ -14,8 +14,16 @@ Slices:
 
 1. **Shipped** (branch `chat-ui`, merged to main as `712f10b`/`79db7d0`): server + SSE + dense UI + Postgres sessions + token gate, live at hello-adk.vercel.app and phone-verified. 18 offline tests.
 2. **Shipped** (branch `chat-ui-titles`, PR #3, merged to main as `43487ba`): rail titles from the first user turn, one collapsible chip per tool call with its result, ↑ recalls the last message. Preview verified through a Vercel protection-bypass secret (32 alphanumeric chars in `hello_world/.env`).
-3. *(rough)* Keyboard and composer polish as real use exposes gaps.
+3. **Slash commands**: `/new` `/stop` `/delete` `/title <text>` as an in-line palette above the composer, backed by `GET /api/commands`; rename persists through ADK session state. See `issues/02`.
+4. **get_datetime tool**: current date/time for the agent — deterministic, offline-testable, fixes the model's date confusion.
+5. **Search grounding**: current-information answers with Google Search (also on the adk-capabilities roadmap).
+6. **Durable preferences**: `remember`/`recall` of stable facts (default tax rate, currency, common quantities) in Postgres (also on the adk-capabilities roadmap).
+7. **Task list**: `add_task` / `complete_task` / `list_tasks`, Postgres-backed.
+8. **Session search**: full-text search over past chat history in Neon ("what did I ask about X").
+9. **URL read**: fetch a page, strip to text, cap size/timeout — first tool with real failure modes (timeouts, huge pages, non-HTML).
+
+Slices 4–9 stay rough until their turn: outcomes and dependencies above, no implementation detail.
 
 ## Scope boundary
 
-No frontend build step, no node_modules, no auth beyond the token gate, one user (`enw`). Model stays Gemini; a Nous swap is a separate later decision.
+No frontend build step, no node_modules, no auth beyond the token gate, one user (`enw`). Model stays Gemini; a Nous swap is a separate later decision. Slash commands are UI actions, never tool-forcing hints to the agent. Tools run on Vercel: nothing touching the local machine or vault (unreachable), no email/calendar (same plus auth complexity).
