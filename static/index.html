@@ -78,7 +78,18 @@
   .toolrow.open .toolpre { display: block; }
 
   #composer { display: flex; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line);
-              background: var(--panel); }
+              background: var(--panel); position: relative; }
+  #slash { position: absolute; bottom: 100%; left: 14px; min-width: 200px;
+           max-width: min(420px, calc(100vw - 28px)); margin-bottom: 4px; z-index: 30;
+           background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+           box-shadow: 0 6px 20px rgba(0, 0, 0, .5); overflow: hidden; }
+  #slash[hidden] { display: none; }
+  .sl { display: flex; gap: 8px; padding: 4px 10px; cursor: pointer; align-items: baseline; }
+  .sl:hover { background: var(--bg); }
+  .sl.on { background: var(--bg); }
+  .sl.on .nm { color: var(--accent); }
+  .sl .nm { color: var(--fg); }
+  .sl .ht { color: var(--dim); font-size: 10px; }
   #input { flex: 1; resize: none; background: var(--bg); color: var(--fg);
            border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
            font: inherit; max-height: 40vh; outline: none; }
@@ -145,7 +156,8 @@
 <main id="main">
   <div id="log"><div id="empty">no messages — say something</div></div>
   <form id="composer">
-    <textarea id="input" rows="1" placeholder="Message · Enter sends · Shift+Enter newline · Esc stops"></textarea>
+    <div id="slash" hidden></div>
+    <textarea id="input" rows="1" placeholder="Message · Enter sends · Shift+Enter newline · Esc stops · / commands"></textarea>
     <button id="send" type="submit">send</button>
   </form>
 </main>
@@ -154,7 +166,7 @@
   <span id="st-session"></span>
   <span id="st-model"></span>
   <button id="railbtn" title="Sessions">☰</button>
-  <span id="st-hint">⌘K new · ⌘B rail · Esc stop</span>
+  <span id="st-hint">⌘K new · ⌘B rail · Esc stop · / cmds</span>
 </footer>
 <script>
 (() => {
@@ -163,7 +175,7 @@
   const log = $("log"), input = $("input");
   const TOKEN_KEY = "chatToken", LAST_KEY = "lastSession";
 
-  const state = { token: "", model: "", sessions: [], current: null,
+  const state = { token: "", model: "", commands: [], sessions: [], current: null,
                   ctrl: null, streaming: false, active: null, lastSent: "" };
 
   // Token from the URL wins; strip it so it never leaks into copied links.
@@ -367,11 +379,73 @@
     });
   }
 
+  // ---- slash palette ------------------------------------------------------
+
+  const slash = { items: [], sel: 0 };
+
+  function closeSlash() {
+    slash.items = []; slash.sel = 0; $("slash").hidden = true;
+  }
+
+  // The palette is open only while typing the command token ("/ti…");
+  // once a space follows, it closes and the argument is free text.
+  function renderSlash() {
+    const m = /^\/(\S*)$/.exec(input.value);
+    if (!m || !state.commands.length) return closeSlash();
+    slash.items = state.commands.filter((c) => c.name.startsWith(m[1].toLowerCase()));
+    if (!slash.items.length) return closeSlash();
+    slash.sel = Math.min(slash.sel, slash.items.length - 1);
+    const box = $("slash");
+    box.textContent = "";
+    slash.items.forEach((c, i) => {
+      const row = el("div", "sl" + (i === slash.sel ? " on" : ""));
+      row.append(el("span", "nm", `/${c.name}`), el("span", "ht", c.hint));
+      row.addEventListener("mousedown", (e) => { e.preventDefault(); insertSlash(c); });
+      box.append(row);
+    });
+    box.hidden = false;
+  }
+
+  function insertSlash(c) {
+    input.value = `/${c.name}${c.takes_arg ? " " : ""}`;
+    closeSlash();
+    autosize();
+    input.focus();
+  }
+
+  async function runCommand(text) {
+    const word = text.slice(1).split(/\s+/, 1)[0];
+    const arg = text.slice(1 + word.length).trim();
+    const cmd = state.commands.find((c) => c.name === word);
+    if (!cmd) return setStatus("err", `unknown command: /${word}`);
+    try {
+      if (cmd.name === "new") await newSession();
+      else if (cmd.name === "stop") { if (state.streaming) state.ctrl.abort(); }
+      else if (cmd.name === "delete") { if (state.current) await deleteSession(state.current); }
+      else if (cmd.name === "title") {
+        if (!arg) return setStatus("err", "/title needs a name");
+        if (!state.current) return setStatus("err", "no session");
+        await api(`/api/sessions/${encodeURIComponent(state.current)}`,
+                 { method: "PATCH", body: JSON.stringify({ title: arg }) });
+        await loadSessions();
+      }
+      setStatus("idle");
+    } catch (err) {
+      setStatus("err", String(err));
+    }
+  }
+
   // ---- chat stream --------------------------------------------------------
 
   async function send() {
     const text = input.value.trim();
     if (!text || state.streaming) return;
+    if (text.startsWith("/")) { // commands never reach the agent
+      input.value = "";
+      autosize();
+      closeSlash();
+      return runCommand(text);
+    }
     state.lastSent = text;
     if (!state.current) await newSession();
     input.value = "";
@@ -423,9 +497,23 @@
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, window.innerHeight * 0.4) + "px";
   }
-  input.addEventListener("input", autosize);
+  input.addEventListener("input", () => { autosize(); renderSlash(); });
   $("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
   input.addEventListener("keydown", (e) => {
+    if (slash.items.length) { // the palette owns the keys while open
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        slash.sel = (slash.sel + (e.key === "ArrowDown" ? 1 : slash.items.length - 1)) % slash.items.length;
+        renderSlash();
+      } else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.isComposing)) {
+        e.preventDefault();
+        insertSlash(slash.items[slash.sel]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        closeSlash();
+      }
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     else if (e.key === "Escape" && state.streaming) state.ctrl.abort();
     else if (e.key === "ArrowUp" && !input.value && state.lastSent) {
@@ -448,13 +536,15 @@
   (async function boot() {
     if (!state.token) { lock(); return; }
     try {
-      const [st, sess] = await Promise.all([
+      const [st, sess, cmds] = await Promise.all([
         api("/api/state").then((r) => r.json()),
         api("/api/sessions").then((r) => r.json()),
+        api("/api/commands").then((r) => r.json()),
       ]);
       state.model = st.model;
       $("st-model").textContent = st.model;
       state.sessions = sess.sessions;
+      state.commands = cmds.commands;
       const last = localStorage.getItem(LAST_KEY);
       const target = state.sessions.find((s) => s.id === last) || state.sessions[0];
       if (target) await selectSession(target.id);

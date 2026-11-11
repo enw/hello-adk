@@ -13,6 +13,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -21,6 +22,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.events import Event, EventActions
 from google.adk.runners import Runner
 from google.adk.sessions import BaseSessionService, DatabaseSessionService
 from google.genai import types
@@ -37,11 +39,29 @@ APP_NAME = "hello_world"
 USER_ID = "enw"
 MAX_LLM_CALLS = 8
 STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
+TITLE_MAX = 80
+# The composer palette; dispatch happens client-side so the server stays
+# the single source of truth for what commands exist.
+COMMANDS = [
+    {"name": "new", "hint": "start a new session", "takes_arg": False},
+    {"name": "stop", "hint": "stop the streaming reply", "takes_arg": False},
+    {"name": "delete", "hint": "delete the current session", "takes_arg": False},
+    {"name": "title", "hint": "rename the current session", "takes_arg": True},
+]
 
 
 class ChatRequest(BaseModel):
     session_id: str
     text: str
+
+
+class RenameRequest(BaseModel):
+    title: str
+
+
+def _title(text: str) -> str:
+    """Shared normalization for derived and manual titles."""
+    return " ".join(text.split())[:TITLE_MAX]
 
 
 def _epoch_ms(value: Any) -> int | None:
@@ -132,23 +152,30 @@ def create_app(service: BaseSessionService | None = None, agent=None) -> FastAPI
     async def get_state() -> dict:
         return {"model": model_name(), "app": APP_NAME, "user": USER_ID, "max_llm_calls": MAX_LLM_CALLS}
 
+    @app.get("/api/commands")
+    async def get_commands() -> dict:
+        return {"commands": COMMANDS}
+
     @app.get("/api/sessions")
     async def get_sessions() -> dict:
         found = await service.list_sessions(app_name=APP_NAME, user_id=USER_ID)
         sessions = []
         for s in found.sessions:
-            # The title is the first user turn; one get_session per listed
-            # session loads full histories — acceptable at personal scale.
+            # A manual title (ui_title state) wins; otherwise the title is the
+            # first user turn. One get_session per listed session loads full
+            # histories — acceptable at personal scale.
             title = ""
             detail = await service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=s.id)
             if detail is not None:
-                for event in detail.events:
-                    if event.author != "user" or not event.content:
-                        continue
-                    text = " ".join("".join(p.text for p in event.content.parts or [] if p.text).split())
-                    if text:
-                        title = text[:80]
-                        break
+                title = str(detail.state.get("ui_title") or "")
+                if not title:
+                    for event in detail.events:
+                        if event.author != "user" or not event.content:
+                            continue
+                        text = " ".join("".join(p.text for p in event.content.parts or [] if p.text).split())
+                        if text:
+                            title = text[:TITLE_MAX]
+                            break
             sessions.append({"id": s.id, "updated": _epoch_ms(s.last_update_time), "title": title})
         return {"sessions": sessions}
 
@@ -163,6 +190,26 @@ def create_app(service: BaseSessionService | None = None, agent=None) -> FastAPI
             raise HTTPException(status_code=404, detail="unknown session")
         await service.delete_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
         return {"ok": True}
+
+    @app.patch("/api/sessions/{session_id}")
+    async def patch_session(session_id: str, req: RenameRequest) -> dict:
+        title = _title(req.title)
+        if not title:
+            raise HTTPException(status_code=422, detail="empty title")
+        session = await service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="unknown session")
+        # ADK persists session state only through append_event; a content-less
+        # event carrying a state delta is the same shape ADK uses for error
+        # events, so the runner and history tolerate it. The event renders as
+        # nothing in /messages (it has no parts).
+        session.state["ui_title"] = title
+        await service.append_event(session, Event(
+            author="app",
+            actions=EventActions(state_delta={"ui_title": title}),
+            timestamp=time.time(),
+        ))
+        return {"ok": True, "title": title}
 
     @app.get("/api/sessions/{session_id}/messages")
     async def get_messages(session_id: str) -> dict:
