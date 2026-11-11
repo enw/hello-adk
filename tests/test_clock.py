@@ -14,6 +14,10 @@ from google.genai import types
 from hello_world.agent import root_agent
 from hello_world.clock import get_datetime
 
+# google_search in the agent's toolset rejects non-Gemini model ids at
+# request time; scripted offline models must bypass that check.
+os.environ.setdefault("ADK_DISABLE_GEMINI_MODEL_ID_CHECK", "1")
+
 
 class ScriptedModel(BaseLlm):
     model: str = "offline-test"

@@ -1,5 +1,6 @@
 from google.adk.agents import Agent
 from google.adk.models.google_llm import Gemini
+from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.genai import types
 
 from .clock import get_datetime
@@ -19,6 +20,8 @@ root_agent = Agent(
         "For anything about today, now, the current date, time, or weekday, "
         "call get_datetime first and answer from its result, mentioning its "
         "timezone; never guess dates. "
+        "For current events, news, or facts beyond your knowledge, search "
+        "the web and answer from the results, citing sources. "
         "For quotes, always use calculate_quote instead of doing arithmetic yourself. "
         "Pass prices and tax percentages as decimal strings. Only USD is supported. "
         "Ask for missing price or quantity; tax defaults to zero. "
@@ -32,5 +35,6 @@ root_agent = Agent(
         "In concise mode use at most two sentences when practical, without omitting "
         "required quote amounts or important errors. Standard mode uses normal detail."
     ),
-    tools=[calculate_quote, session_preferences, get_datetime],
+    tools=[calculate_quote, session_preferences, get_datetime,
+           GoogleSearchTool(bypass_multi_tools_limit=True)],
 )
