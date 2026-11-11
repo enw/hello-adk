@@ -15,7 +15,7 @@ Slices:
 1. **Shipped** (branch `chat-ui`, merged to main as `712f10b`/`79db7d0`): server + SSE + dense UI + Postgres sessions + token gate, live at hello-adk.vercel.app and phone-verified. 18 offline tests.
 2. **Shipped** (branch `chat-ui-titles`, PR #3, merged to main as `43487ba`): rail titles from the first user turn, one collapsible chip per tool call with its result, ↑ recalls the last message. Preview verified through a Vercel protection-bypass secret (32 alphanumeric chars in `hello_world/.env`).
 3. **Shipped** (branch `chat-ui-slash`, PR #4, merged to main as `ffc172a`): `/new` `/stop` `/delete` `/title <text>` in-line palette backed by `GET /api/commands`; renames ride ADK session state (content-less `append_event` with a `ui_title` delta). Verified on preview and production.
-4. **get_datetime tool**: current date/time for the agent — deterministic, offline-testable, fixes the model's date confusion.
+4. **Shipped** (branch `chat-ui-datetime`, PR #5, merged to main as `cded0c7`): `get_datetime` with an optional IANA timezone; empty resolves to `APP_TIMEZONE` (else UTC), invalid zones return an actionable error. Verified on preview and production.
 5. **Search grounding**: current-information answers with Google Search (also on the adk-capabilities roadmap).
 6. **Durable preferences**: `remember`/`recall` of stable facts (default tax rate, currency, common quantities) in Postgres (also on the adk-capabilities roadmap).
 7. **Task list**: `add_task` / `complete_task` / `list_tasks`, Postgres-backed.
