@@ -43,6 +43,7 @@
   .srow:hover { background: var(--panel2); }
   .srow.on { border-left-color: var(--accent); background: var(--panel2); }
   .sid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sid.dim { color: var(--dim); }
   .sright { display: flex; gap: 4px; align-items: center; color: var(--dim); font-size: 10px; }
   .sdel { background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit;
           padding: 0 3px; line-height: 1; }
@@ -163,7 +164,7 @@
   const TOKEN_KEY = "chatToken", LAST_KEY = "lastSession";
 
   const state = { token: "", model: "", sessions: [], current: null,
-                  ctrl: null, streaming: false, active: null };
+                  ctrl: null, streaming: false, active: null, lastSent: "" };
 
   // Token from the URL wins; strip it so it never leaks into copied links.
   {
@@ -231,15 +232,41 @@
     return body;
   }
 
-  function addTool(phase, name, payload) {
-    clearEmpty();
+  const openTools = new Map(); // tool name -> queue of chips awaiting their result
+
+  function chipRow(chip, pre) {
     const row = el("div", "toolrow");
-    const chip = el("span", `chip ${phase}`);
-    chip.append(el("span", "arrow"), el("span", null, `${phase === "call" ? "⚙" : "✓"} ${name}`));
-    const pre = el("pre", "toolpre", JSON.stringify(payload, null, 2));
     chip.addEventListener("click", () => row.classList.toggle("open"));
     row.append(chip, pre);
     log.append(row);
+    return row;
+  }
+
+  function addToolCall(name, args) {
+    clearEmpty();
+    const chip = el("span", "chip call");
+    const label = el("span", null, `⚙ ${name}`);
+    chip.append(el("span", "arrow"), label);
+    const pre = el("pre", "toolpre", `args\n${JSON.stringify(args, null, 2)}`);
+    chipRow(chip, pre);
+    const queue = openTools.get(name) || [];
+    queue.push({ chip, label, pre });
+    openTools.set(name, queue);
+  }
+
+  function addToolResult(name, response) {
+    const queue = openTools.get(name);
+    const pending = queue && queue.length ? queue.shift() : null;
+    if (!pending) { // unpaired result (e.g. history missing its call): standalone
+      clearEmpty();
+      const chip = el("span", "chip result");
+      chip.append(el("span", "arrow"), el("span", null, `✓ ${name}`));
+      chipRow(chip, el("pre", "toolpre", `result\n${JSON.stringify(response, null, 2)}`));
+      return;
+    }
+    pending.pre.textContent += `\nresult\n${JSON.stringify(response, null, 2)}`;
+    pending.chip.className = "chip result";
+    pending.label.textContent = `✓ ${name}`;
   }
 
   function addError(message) {
@@ -264,7 +291,7 @@
   function onEvent(ev) {
     if (ev.type === "delta") auto(() => { activeBody().textContent += ev.text; });
     else if (ev.type === "replace") auto(() => { const b = activeBody(); b.innerHTML = md(ev.text); state.active = null; });
-    else if (ev.type === "tool") auto(() => addTool(ev.phase, ev.name, ev.phase === "call" ? ev.args : ev.response));
+    else if (ev.type === "tool") auto(() => (ev.phase === "call" ? addToolCall(ev.name, ev.args) : addToolResult(ev.name, ev.response)));
     else if (ev.type === "error") { finalizeActive(); auto(() => addError(ev.message)); setStatus("err"); }
     else if (ev.type === "done") { finalizeActive(); setStatus("idle"); }
   }
@@ -285,7 +312,7 @@
     state.sessions.sort((a, b) => (b.updated || 0) - (a.updated || 0));
     for (const s of state.sessions) {
       const row = el("div", "srow" + (s.id === state.current ? " on" : ""));
-      row.append(el("span", "sid", s.id.slice(0, 8)));
+      row.append(el("span", "sid" + (s.title ? "" : " dim"), s.title || "untitled"));
       const right = el("span", "sright");
       right.append(el("span", "stime", timeAgo(s.updated)));
       const del = el("button", "sdel", "×");
@@ -328,13 +355,14 @@
     renderRail();
     $("st-session").textContent = id.slice(0, 8);
     log.textContent = "";
+    openTools.clear();
     const data = await (await api(`/api/sessions/${encodeURIComponent(id)}/messages`)).json();
     auto(() => {
       for (const item of data.items) {
         if (item.kind === "text")
           addText(item.author, item.author === "user" ? esc(item.text) : md(item.text));
-        else if (item.kind === "call") addTool("call", item.name, item.args);
-        else addTool("result", item.name, item.response);
+        else if (item.kind === "call") addToolCall(item.name, item.args);
+        else addToolResult(item.name, item.response);
       }
     });
   }
@@ -344,6 +372,7 @@
   async function send() {
     const text = input.value.trim();
     if (!text || state.streaming) return;
+    state.lastSent = text;
     if (!state.current) await newSession();
     input.value = "";
     autosize();
@@ -399,6 +428,11 @@
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     else if (e.key === "Escape" && state.streaming) state.ctrl.abort();
+    else if (e.key === "ArrowUp" && !input.value && state.lastSent) {
+      e.preventDefault(); // recall the last sent message into an empty composer
+      input.value = state.lastSent;
+      autosize();
+    }
   });
   document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;

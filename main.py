@@ -135,7 +135,22 @@ def create_app(service: BaseSessionService | None = None, agent=None) -> FastAPI
     @app.get("/api/sessions")
     async def get_sessions() -> dict:
         found = await service.list_sessions(app_name=APP_NAME, user_id=USER_ID)
-        return {"sessions": [{"id": s.id, "updated": _epoch_ms(s.last_update_time)} for s in found.sessions]}
+        sessions = []
+        for s in found.sessions:
+            # The title is the first user turn; one get_session per listed
+            # session loads full histories — acceptable at personal scale.
+            title = ""
+            detail = await service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=s.id)
+            if detail is not None:
+                for event in detail.events:
+                    if event.author != "user" or not event.content:
+                        continue
+                    text = " ".join("".join(p.text for p in event.content.parts or [] if p.text).split())
+                    if text:
+                        title = text[:80]
+                        break
+            sessions.append({"id": s.id, "updated": _epoch_ms(s.last_update_time), "title": title})
+        return {"sessions": sessions}
 
     @app.post("/api/sessions")
     async def post_session() -> dict:
