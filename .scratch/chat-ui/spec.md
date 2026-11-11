@@ -13,7 +13,7 @@ A FastAPI server (`main.py`) bridges the ADK agent over Server-Sent Events; a si
 Slices:
 
 1. **Shipped** (branch `chat-ui`, merged to main as `712f10b`/`79db7d0`): server + SSE + dense UI + Postgres sessions + token gate, live at hello-adk.vercel.app and phone-verified. 18 offline tests.
-2. **Readable sessions and tool chips**: rail titles from the first user turn, one collapsible chip per tool call with its result, ↑ recalls the last message. See `issues/01`.
+2. **Shipped** (branch `chat-ui-titles`, PR #3, merged to main as `43487ba`): rail titles from the first user turn, one collapsible chip per tool call with its result, ↑ recalls the last message. Preview verified through a Vercel protection-bypass secret (32 alphanumeric chars in `hello_world/.env`).
 3. *(rough)* Keyboard and composer polish as real use exposes gaps.
 
 ## Scope boundary
