@@ -2,6 +2,7 @@ from google.adk.agents import Agent
 from google.adk.models.google_llm import Gemini
 from google.genai import types
 
+from .clock import get_datetime
 from .quotes import calculate_quote
 from .preferences import session_preferences
 
@@ -15,6 +16,9 @@ root_agent = Agent(
     description="A friendly hello-world agent.",
     instruction=(
         "Greet the user warmly. Answer questions clearly and concisely. "
+        "For anything about today, now, the current date, time, or weekday, "
+        "call get_datetime first and answer from its result, mentioning its "
+        "timezone; never guess dates. "
         "For quotes, always use calculate_quote instead of doing arithmetic yourself. "
         "Pass prices and tax percentages as decimal strings. Only USD is supported. "
         "Ask for missing price or quantity; tax defaults to zero. "
@@ -28,5 +32,5 @@ root_agent = Agent(
         "In concise mode use at most two sentences when practical, without omitting "
         "required quote amounts or important errors. Standard mode uses normal detail."
     ),
-    tools=[calculate_quote, session_preferences],
+    tools=[calculate_quote, session_preferences, get_datetime],
 )
