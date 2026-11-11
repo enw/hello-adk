@@ -9,17 +9,24 @@ from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from pydantic import Field
 
 from hello_world.agent import root_agent
 from main import create_app
+
+# google_search in the agent's toolset rejects non-Gemini model ids at
+# request time; scripted offline models must bypass that check.
+os.environ.setdefault("ADK_DISABLE_GEMINI_MODEL_ID_CHECK", "1")
 
 
 class ScriptedModel(BaseLlm):
     model: str = "offline-test"
     replies: list[types.Content]
+    groundings: list = Field(default_factory=list)  # optional GroundingMetadata per reply
 
     async def generate_content_async(self, llm_request, stream=False):
-        yield LlmResponse(content=self.replies.pop(0))
+        grounding = self.groundings.pop(0) if self.groundings else None
+        yield LlmResponse(content=self.replies.pop(0), grounding_metadata=grounding)
 
 
 def reply(*parts):
@@ -51,8 +58,8 @@ class ServerTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def client(self, replies):
-        agent = root_agent.model_copy(update={"model": ScriptedModel(replies=list(replies))})
+    def client(self, replies, groundings=()):
+        agent = root_agent.model_copy(update={"model": ScriptedModel(replies=list(replies), groundings=list(groundings))})
         return self.enterContext(TestClient(create_app(service=InMemorySessionService(), agent=agent)))
 
     def test_index_served_without_token(self):
@@ -188,6 +195,49 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(any("64.92" in t for t in texts))  # so does the model answer
         self.assertTrue(any(i["kind"] == "call" for i in items))
         self.assertTrue(any(i["kind"] == "response" for i in items))
+
+    def test_chat_emits_search_event_and_persists_citations(self):
+        grounding = types.GroundingMetadata(
+            web_search_queries=["latest adk release"],
+            grounding_chunks=[
+                {"web": {"uri": "https://example.com/a", "title": "Example A"}},
+                {"web": {"uri": "https://example.com/a", "title": "Example A, again"}},
+                {"web": {"uri": "https://example.com/b", "title": "Example B"}},
+            ],
+        )
+        client = self.client([reply(types.Part(text="It shipped."))], groundings=[grounding])
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        response = client.post("/api/chat", headers=AUTH,
+                               json={"session_id": session, "text": "What is the latest ADK release?"})
+        self.assertEqual(response.status_code, 200)
+        events = sse_events(response)
+        searches = [e for e in events if e["type"] == "search"]
+        self.assertEqual(len(searches), 1)
+        self.assertEqual(searches[0]["queries"], ["latest adk release"])
+        self.assertEqual(searches[0]["citations"], [
+            {"title": "Example A", "uri": "https://example.com/a"},
+            {"title": "Example B", "uri": "https://example.com/b"},
+        ])
+        # history reload re-renders the same chip, above the answer it grounded
+        items = client.get(f"/api/sessions/{session}/messages", headers=AUTH).json()["items"]
+        self.assertEqual([i["kind"] for i in items], ["text", "search", "text"])
+        self.assertEqual([i for i in items if i["kind"] == "search"][0]["citations"],
+                         searches[0]["citations"])
+
+    def test_repeated_grounding_in_one_turn_emits_a_single_search_event(self):
+        grounding = types.GroundingMetadata(
+            web_search_queries=["quote check"],
+            grounding_chunks=[{"web": {"uri": "https://example.com/a", "title": "Example A"}}],
+        )
+        client = self.client(
+            [tool_call(unit_price="1.00", quantity=1), reply(types.Part(text="Done."))],
+            groundings=[grounding, grounding],
+        )
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        response = client.post("/api/chat", headers=AUTH,
+                               json={"session_id": session, "text": "quote 1 item at $1"})
+        events = sse_events(response)
+        self.assertEqual(len([e for e in events if e["type"] == "search"]), 1)
 
 
 if __name__ == "__main__":

@@ -75,9 +75,29 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, default=str)}\n\n"
 
 
+def _grounding(event) -> dict | None:
+    """Flatten an event's web-search grounding into queries + deduped citations."""
+    meta = getattr(event, "grounding_metadata", None)
+    if meta is None:
+        return None
+    queries = [q for q in (meta.web_search_queries or []) if q]
+    citations, seen = [], set()
+    for chunk in meta.grounding_chunks or []:
+        web = getattr(chunk, "web", None)
+        uri = getattr(web, "uri", None) if web else None
+        if not uri or uri in seen:  # search results repeat URIs across chunks
+            continue
+        seen.add(uri)
+        citations.append({"title": getattr(web, "title", None) or uri, "uri": uri})
+    return {"queries": queries, "citations": citations} if queries or citations else None
+
+
 def _event_items(event) -> list[dict]:
     """Flatten one persisted event into client-renderable items."""
     items = []
+    search = _grounding(event)
+    if search:  # the chip renders above the answer it grounded
+        items.append({"kind": "search", **search})
     for part in (event.content.parts if event.content else None) or []:
         if part.text:
             items.append({"kind": "text", "author": event.author, "text": part.text, "ts": _epoch_ms(event.timestamp)})
@@ -229,6 +249,8 @@ def create_app(service: BaseSessionService | None = None, agent=None) -> FastAPI
 
         async def stream() -> AsyncIterator[str]:
             streamed = ""  # text already sent as deltas within the current model turn
+            sent_uris: set[str] = set()  # grounding repeats across events in one turn
+            sent_queries: set[str] = set()
             try:
                 # One runner per request, never closed: closing it would close
                 # the shared session service every other request still uses.
@@ -243,6 +265,15 @@ def create_app(service: BaseSessionService | None = None, agent=None) -> FastAPI
                     if event.error_message:
                         yield _sse({"type": "error", "message": event.error_message})
                         continue
+                    if not event.partial:
+                        search = _grounding(event)
+                        if search:
+                            fresh = [c for c in search["citations"] if c["uri"] not in sent_uris]
+                            queries = [q for q in search["queries"] if q not in sent_queries]
+                            if fresh or queries:
+                                sent_uris.update(c["uri"] for c in fresh)
+                                sent_queries.update(queries)
+                                yield _sse({"type": "search", "queries": queries, "citations": fresh})
                     parts = (event.content.parts if event.content else None) or []
                     for part in parts:
                         if part.function_call and not event.partial:

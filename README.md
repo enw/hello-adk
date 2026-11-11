@@ -69,6 +69,14 @@ Ask for the date, time, or weekday:
 
 The agent calls `get_datetime` and answers from the result instead of guessing. An empty timezone argument uses the server default (`APP_TIMEZONE`, else UTC); explicit IANA names work, and unknown ones return an actionable error.
 
+## Web search
+
+Ask about anything current:
+
+> What's new in the latest Gemini release?
+
+The agent grounds its answer with Google Search and cites sources; the chat UI shows a 🔍 chip with the queries and the links it used.
+
 
 ## Session response style
 

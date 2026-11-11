@@ -71,10 +71,12 @@
           cursor: pointer; user-select: none; }
   .chip.call { color: var(--warn); }
   .chip.result { color: var(--ok); }
+  .chip.search { color: var(--accent); }
   .chip .arrow::before { content: "▸"; color: var(--dim); }
   .toolrow.open .chip .arrow::before { content: "▾"; }
   .toolpre { display: none; margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere;
              color: var(--dim); font-size: 11px; }
+  .toolpre a { color: var(--accent); }
   .toolrow.open .toolpre { display: block; }
 
   #composer { display: flex; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line);
@@ -281,6 +283,24 @@
     pending.label.textContent = `✓ ${name}`;
   }
 
+  function addSearch(queries, citations) {
+    clearEmpty();
+    const chip = el("span", "chip search");
+    chip.title = `${citations.length} citation${citations.length === 1 ? "" : "s"}`;
+    chip.append(el("span", "arrow"), el("span", null, `🔍 ${queries.join(" · ") || "searched the web"}`));
+    const pre = el("pre", "toolpre");
+    if (citations.length) {
+      for (const c of citations) {
+        const a = el("a", null, c.title || c.uri);
+        a.href = c.uri;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        pre.append(a, "\n");
+      }
+    } else pre.textContent = "no citations";
+    chipRow(chip, pre);
+  }
+
   function addError(message) {
     clearEmpty();
     const body = addText("model", esc(String(message)), "err");
@@ -304,6 +324,7 @@
     if (ev.type === "delta") auto(() => { activeBody().textContent += ev.text; });
     else if (ev.type === "replace") auto(() => { const b = activeBody(); b.innerHTML = md(ev.text); state.active = null; });
     else if (ev.type === "tool") auto(() => (ev.phase === "call" ? addToolCall(ev.name, ev.args) : addToolResult(ev.name, ev.response)));
+    else if (ev.type === "search") auto(() => addSearch(ev.queries || [], ev.citations || []));
     else if (ev.type === "error") { finalizeActive(); auto(() => addError(ev.message)); setStatus("err"); }
     else if (ev.type === "done") { finalizeActive(); setStatus("idle"); }
   }
@@ -374,6 +395,7 @@
         if (item.kind === "text")
           addText(item.author, item.author === "user" ? esc(item.text) : md(item.text));
         else if (item.kind === "call") addToolCall(item.name, item.args);
+        else if (item.kind === "search") addSearch(item.queries, item.citations);
         else addToolResult(item.name, item.response);
       }
     });
