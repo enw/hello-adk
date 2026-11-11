@@ -61,6 +61,15 @@ The agent uses `calculate_quote` for quote arithmetic. Prices and tax percentage
 
 Rounding: multiply the decimal unit price by quantity, round subtotal to two decimals using `ROUND_HALF_UP`, calculate tax on that rounded subtotal and round tax the same way, then add them. Results are two-decimal strings. Values exceeding supported decimal precision return an actionable error rather than a partial quote.
 
+## Current date and time
+
+Ask for the date, time, or weekday:
+
+> What day is it? What time is it in Tokyo?
+
+The agent calls `get_datetime` and answers from the result instead of guessing. An empty timezone argument uses the server default (`APP_TIMEZONE`, else UTC); explicit IANA names work, and unknown ones return an actionable error.
+
+
 ## Session response style
 
 The agent can remember one preference **within the current conversation**: `concise` or `standard` (the default). No preference is shared with a new conversation or another user.
