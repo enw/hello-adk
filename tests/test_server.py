@@ -90,6 +90,22 @@ class ServerTests(unittest.TestCase):
             client.get(f"/api/sessions/{created['id']}/messages", headers=AUTH).status_code, 404
         )
 
+    def test_session_list_titles_come_from_first_user_message(self):
+        client = self.client([reply(types.Part(text="Answer."))])
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        client.post("/api/chat", headers=AUTH,
+                    json={"session_id": session, "text": "  hello   there  "})
+        listed = client.get("/api/sessions", headers=AUTH).json()["sessions"]
+        mine = next(s for s in listed if s["id"] == session)
+        self.assertEqual(mine["title"], "hello there")
+
+    def test_session_without_messages_lists_untitled(self):
+        client = self.client([])
+        session = client.post("/api/sessions", headers=AUTH).json()["id"]
+        listed = client.get("/api/sessions", headers=AUTH).json()["sessions"]
+        mine = next(s for s in listed if s["id"] == session)
+        self.assertEqual(mine["title"], "")
+
     def test_chat_rejects_unknown_session_and_empty_text(self):
         client = self.client([])
         unknown = client.post("/api/chat", headers=AUTH, json={"session_id": "missing", "text": "hi"})
