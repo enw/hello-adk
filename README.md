@@ -30,7 +30,7 @@ Or chat in your terminal:
 uv run adk run hello_world
 ```
 
-Edit `hello_world/agent.py` to change the agent's instructions or model (currently `gemini-3.5-flash-lite`). Requests use a 15-second timeout per attempt and at most two attempts.
+Edit `hello_world/agent.py` to change the agent's instructions or model (currently `gemini-3.5-flash-lite`). Each of a request's at most two attempts has a 15-second timeout.
 
 ## Quote calculator
 
